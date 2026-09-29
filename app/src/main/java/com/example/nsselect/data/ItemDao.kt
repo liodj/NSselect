@@ -12,6 +12,9 @@ interface ItemDao {
     @Query("SELECT * FROM items")
     fun getAllItemsFlow(): Flow<List<ItemEntity>>
 
+    @Query("SELECT * FROM items ORDER BY id")
+    suspend fun getAllItems(): List<ItemEntity>
+
     @Query("SELECT * FROM items WHERE isExcluded = 0")
     suspend fun getIncludedItems(): List<ItemEntity>
 

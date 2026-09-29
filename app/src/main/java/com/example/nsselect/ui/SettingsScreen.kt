@@ -14,13 +14,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.nsselect.data.ItemEntity
 import com.example.nsselect.viewmodel.MainViewModel
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import com.example.nsselect.viewmodel.ImportResult
 
 @Composable
 fun SettingsScreen(viewModel: MainViewModel) {
@@ -28,39 +29,62 @@ fun SettingsScreen(viewModel: MainViewModel) {
     val items by viewModel.allItems.collectAsState(initial = emptyList())
     
     var itemToEdit by remember { mutableStateOf<ItemEntity?>(null) }
+    var showClearConfirmation by remember { mutableStateOf(false) }
+    var isImporting by remember { mutableStateOf(false) }
+    var isExporting by remember { mutableStateOf(false) }
     
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.openInputStream(it)?.use { inputStream ->
-                    val bytes = inputStream.readBytes()
-                    val strUtf8 = String(bytes, Charsets.UTF_8)
-                    // 만약 UTF-8로 읽었을 때 깨진 문자(Replacement Character)가 포함되어 있다면, 
-                    // 엑셀에서 기본 저장되는 ANSI(EUC-KR/CP949)로 간주하고 다시 디코딩합니다.
-                    val csvContent = if (strUtf8.contains("\uFFFD")) {
-                        String(bytes, java.nio.charset.Charset.forName("EUC-KR"))
-                    } else {
-                        strUtf8
-                    }
-                    
-                    // 새 파일을 불러올 때 기존 DB와 번호를 모두 초기화합니다.
-                    viewModel.clearDatabase()
-                    
-                    viewModel.importCsv(csvContent) { count ->
-                        android.widget.Toast.makeText(context, "${count}개의 데이터를 성공적으로 불러왔습니다.", android.widget.Toast.LENGTH_SHORT).show()
-                    }
+        uri?.let { selectedUri ->
+            isImporting = true
+            viewModel.importCsv(selectedUri) { result ->
+                isImporting = false
+                val message = when (result) {
+                    is ImportResult.Success -> "${result.count}개의 노래를 불러왔습니다."
+                    is ImportResult.Failure -> "가져오기 실패: ${result.message} 기존 데이터는 유지됩니다."
                 }
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "파일을 읽는 중 오류가 발생했습니다.", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
             }
         }
     }
 
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri?.let { selectedUri ->
+            isExporting = true
+            viewModel.exportCsv(selectedUri) { result ->
+                isExporting = false
+                val message = when (result) {
+                    is ImportResult.Success -> "${result.count}개의 노래를 내보냈습니다."
+                    is ImportResult.Failure -> "내보내기 실패: ${result.message}"
+                }
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    if (showClearConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmation = false },
+            title = { Text("데이터베이스 초기화") },
+            text = { Text("저장된 노래 ${items.size}개를 모두 삭제하시겠습니까?") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.clearDatabase()
+                    showClearConfirmation = false
+                }) { Text("삭제") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmation = false }) { Text("취소") }
+            }
+        )
+    }
+
     // 아이템 수정 다이얼로그
     if (itemToEdit != null) {
-        var editTitle by remember { mutableStateOf(itemToEdit!!.title) }
-        var editCategory by remember { mutableStateOf(itemToEdit!!.category) }
-        var editDuration by remember { mutableStateOf(itemToEdit!!.durationSeconds.toString()) }
+        var editTitle by remember(itemToEdit!!.id) { mutableStateOf(itemToEdit!!.title) }
+        var editCategory by remember(itemToEdit!!.id) { mutableStateOf(itemToEdit!!.category) }
+        var editDuration by remember(itemToEdit!!.id) { mutableStateOf(itemToEdit!!.durationSeconds.toString()) }
+        val durationInt = editDuration.toIntOrNull()
+        val canSave = editTitle.isNotBlank() && editCategory.isNotBlank() && durationInt != null && durationInt > 0
         
         AlertDialog(
             onDismissRequest = { itemToEdit = null },
@@ -83,17 +107,18 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         value = editDuration,
                         onValueChange = { editDuration = it },
                         label = { Text("시간 (초)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        supportingText = { if (durationInt == null || durationInt <= 0) Text("1초 이상의 숫자를 입력하세요.") },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val durationInt = editDuration.toIntOrNull() ?: itemToEdit!!.durationSeconds
+                Button(enabled = canSave, onClick = {
                     viewModel.updateItem(itemToEdit!!.copy(
-                        title = editTitle,
-                        category = editCategory,
-                        durationSeconds = durationInt
+                        title = editTitle.trim(),
+                        category = editCategory.trim(),
+                        durationSeconds = durationInt!!
                     ))
                     itemToEdit = null
                 }) { Text("저장") }
@@ -108,24 +133,27 @@ fun SettingsScreen(viewModel: MainViewModel) {
         Text("데이터 관리", style = MaterialTheme.typography.titleLarge)
         
         Text(
-            text = "CSV 파일 형식: 번호, 제목, 길이(초), 분류\n(스마트폰에 저장된 .csv 또는 .txt 파일을 선택해주세요)",
+            text = "CSV 첫 행은 제외합니다. 열: 번호, 제목, 길이(초), 분류, 가중치(선택·기본값 5)",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 8.dp)
         )
         
-        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Button(onClick = { launcher.launch("*/*") }) {
-                Text("CSV 파일 선택")
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { launcher.launch("*/*") }, enabled = !isImporting && !isExporting, modifier = Modifier.weight(1f)) {
+                Text("불러오기")
             }
-            Button(onClick = { viewModel.clearDatabase() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+            Button(onClick = { exportLauncher.launch("nsselect.csv") }, enabled = !isImporting && !isExporting && items.isNotEmpty(), modifier = Modifier.weight(1f)) {
+                Text("내보내기")
+            }
+            Button(onClick = { showClearConfirmation = true }, enabled = !isImporting && !isExporting && items.isNotEmpty(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
                 Text("DB 초기화")
             }
         }
         
         Spacer(modifier = Modifier.height(16.dp))
         Text("항목 및 가중치 관리 (총 ${items.size}개)", style = MaterialTheme.typography.titleLarge)
-        Divider(modifier = Modifier.padding(vertical = 8.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
         
         val groupedItems = items.groupBy { it.category }
         val expandedCategories = remember { mutableStateMapOf<String, Boolean>() }
@@ -251,7 +279,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
                                 modifier = Modifier.scale(0.8f)
                             )
                         }
-                        Divider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
                     }
                 }
             }

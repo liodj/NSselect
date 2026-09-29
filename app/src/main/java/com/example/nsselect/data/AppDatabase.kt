@@ -20,7 +20,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "nsselect_database"
                 )
-                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance
