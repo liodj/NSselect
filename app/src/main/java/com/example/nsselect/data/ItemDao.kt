@@ -15,7 +15,7 @@ interface ItemDao {
     @Query("SELECT * FROM items ORDER BY id")
     suspend fun getAllItems(): List<ItemEntity>
 
-    @Query("SELECT * FROM items WHERE isExcluded = 0")
+    @Query("SELECT * FROM items WHERE isExcluded = 0 AND isCategoryExcluded = 0")
     suspend fun getIncludedItems(): List<ItemEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -27,9 +27,21 @@ interface ItemDao {
     @Query("DELETE FROM items")
     suspend fun deleteAllItems()
     
-    @Query("UPDATE items SET isExcluded = :isExcluded WHERE category = :category")
+    @Query("UPDATE items SET isCategoryExcluded = :isExcluded WHERE category = :category")
     suspend fun updateCategoryExclusion(category: String, isExcluded: Boolean)
     
     @Query("UPDATE items SET categoryWeight = :weight WHERE category = :category")
     suspend fun updateCategoryWeight(category: String, weight: Int)
+
+    @Query("UPDATE items SET weight = :weight WHERE id = :id")
+    suspend fun updateItemWeight(id: Int, weight: Int)
+
+    @Query("UPDATE items SET isExcluded = :isExcluded WHERE id = :id")
+    suspend fun updateItemExclusion(id: Int, isExcluded: Boolean)
+
+    @Query("UPDATE items SET categoryWeight = :weight, isCategoryExcluded = :isExcluded WHERE category = :category")
+    suspend fun updateCategorySettings(category: String, weight: Int, isExcluded: Boolean)
+
+    @Query("UPDATE items SET weight = :weight, isExcluded = :isExcluded WHERE id = :id")
+    suspend fun updateSongSettings(id: Int, weight: Int, isExcluded: Boolean)
 }

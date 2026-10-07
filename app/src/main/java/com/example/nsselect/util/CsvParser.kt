@@ -50,7 +50,7 @@ object CsvParser {
             }
             if (category.isEmpty()) throw CsvFormatException("${record.line}행: 분류가 비어 있습니다.")
             if (weight == null || weight !in 1..10) {
-                throw CsvFormatException("${record.line}행: 가중치는 1~10 사이의 정수여야 합니다.")
+                throw CsvFormatException("${record.line}행: 빈도는 1~10 사이의 정수여야 합니다.")
             }
             ItemEntity(id = id, title = title, durationSeconds = duration, category = category, weight = weight)
         }
@@ -61,7 +61,7 @@ object CsvParser {
         val rows = items.sortedBy { it.id }.map { item ->
             "${item.id},${escape(item.title)},${item.durationSeconds},${escape(item.category)},${item.weight}"
         }
-        return (listOf("번호,제목,길이(초),분류,가중치") + rows).joinToString("\r\n", postfix = "\r\n")
+        return (listOf("번호,제목,길이(초),분류,빈도") + rows).joinToString("\r\n", postfix = "\r\n")
     }
 
     private fun detectDelimiter(content: String): Char {

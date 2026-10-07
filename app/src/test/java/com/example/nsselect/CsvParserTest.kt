@@ -64,7 +64,7 @@ class CsvParserTest {
         val error = assertThrows(CsvFormatException::class.java) {
             CsvParser.parseCsv("장,제목,길이,분류,A\n1,A,280,가,11")
         }
-        assertEquals("2행: 가중치는 1~10 사이의 정수여야 합니다.", error.message)
+        assertEquals("2행: 빈도는 1~10 사이의 정수여야 합니다.", error.message)
     }
 
     @Test
